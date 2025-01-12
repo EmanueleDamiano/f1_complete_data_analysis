@@ -1,0 +1,3 @@
+pymongo 
+fastf1
+pandas

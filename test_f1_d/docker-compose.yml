@@ -1,0 +1,189 @@
+version: '3.8'
+
+services:
+  # Spark Master
+  # spark-master:
+  #   image: bitnami/spark:latest
+  #   container_name: spark-master
+  #   environment:
+  #     - SPARK_MODE=master
+  #     - SPARK_MASTER_HOST=spark-master
+  #   ports:
+  #     - "7077:7077"  # Spark Master port
+  #     - "8081:8080"  # Spark UI
+  #   networks:
+  #     - f1_network
+
+  # # Spark Workers (you can scale the number of workers)
+  # spark-worker:
+  #   image: bitnami/spark:latest
+  #   # container_name: spark-worker crea automaticamente nomi quando si usa replicas
+  #   environment:
+  #     - SPARK_MODE=worker
+  #     - SPARK_MASTER=spark://spark-master:7077
+  #   depends_on:
+  #     - spark-master
+  #   deploy:
+  #     replicas: 3  # You can scale this for more workers
+  #   mem_limit: 4g  # Adjust memory limit as needed
+  #   cpus: 2  # Adjust CPU limit as needed
+  #   networks:
+  #     - f1_network
+      
+  # Spark Submit job container
+  # spark-submit:
+  #   image: jupyter/all-spark-notebook:latest
+  #   entrypoint: >
+  #     /bin/bash -c "
+  #     pip install -r /opt/bitnami/python/requirements.txt &&
+  #     /usr/local/spark/bin/spark-submit
+  #     --master spark://spark-master:7077
+  #     --conf spark.driver.memory=4g
+  #     --conf spark.executor.memory=4g
+  #     --conf spark.executor.instances=3
+  #     /opt/bitnami/python/spark_gathering.py"
+  #   depends_on:
+  #     - spark-master
+  #     - spark-worker
+  #   volumes:
+  #     - ./data_gatherer:/opt/bitnami/python
+  #   networks:
+  #     - f1_network
+
+
+
+
+
+  mongo_data:
+    image: mongodb/mongodb-community-server:latest
+    container_name: mongo_data
+    
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongodb_data:/data/db 
+    networks:
+      - f1_network
+  
+  # spark-submit:
+  #   image: jupyter/all-spark-notebook:latest
+  #   entrypoint: >
+  #     /bin/bash -c "
+  #     pip install -r /opt/bitnami/python/requirements.txt &&
+  #     /usr/local/spark/bin/spark-submit
+  #     --master local[*]
+  #     --conf spark.driver.memory=4g
+  #     --conf spark.executor.memory=4g
+  #     --conf spark.executor.instances=3
+  #     /opt/bitnami/python/spark_gathering.py"
+  #   depends_on:
+  #     - mongo_data
+  #   volumes:
+  #     - ./data_gatherer:/opt/bitnami/python
+  #   networks:
+  #     - f1_network
+
+
+
+  # producer:
+  
+  #   build: ./producer
+  #   container_name: producer
+  #   depends_on:
+  #     - kafka
+  #     - zookeeper
+  #   environment:
+  #     - KAFKA_BROKER=kafka:9092
+  #   entrypoint: ["sh", "-c", "until nc -z kafka 9092; do echo waiting for kafka; sleep 2; done; python producer.py"]
+
+  #   networks:
+  #     - f1_network
+
+
+  # consumer:
+  #   build: ./consumer
+  #   container_name: consumer
+
+  #   depends_on:
+  #     - kafka
+  #     # - mongo_data
+  #     # - producer
+  #   environment:
+  #     - KAFKA_BROKER=kafka:9092
+  #     - MONGODB_URI=mongodb://mongo_data:27017
+  #   entrypoint: ["sh", "-c", "until nc -z kafka 9092; do echo waiting for kafka; sleep 5; done; echo Kafka is up!; python consumer.py"]
+  #   networks:
+  #     - f1_network
+
+  # kafka:
+  #   image: wurstmeister/kafka:latest
+  #   container_name: kafka
+  #   ports:
+  #     - "9092:9092"
+  #   environment:
+  #     KAFKA_BROKER_ID: 1
+  #     KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+  #     KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+  #     KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+  #     KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+  #     KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+  #   healthcheck:
+  #     test: ["CMD", "nc", "-z", "localhost", "9092"]
+  #     retries: 5
+  #     interval: 10s
+  #     timeout: 5s
+  #   networks:
+  #     - f1_network
+
+  # zookeeper:
+  #   image: wurstmeister/zookeeper:latest
+  #   container_name: zookeeper
+  #   ports:
+  #     - "2181:2181"
+  #   environment:
+  #     # ZOOKEEPER_SERVER_ID: 1
+  #     ZOOKEEPER_LISTENER_PORT: 2181
+  #   networks:
+  #     - f1_network
+
+
+
+  sanic_app:
+    build:
+      context: ./sanic_app
+    container_name: sanic_app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo_data
+    environment:
+      - MONGO_URI=mongodb://mongo_data:27017  
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://sanic_app:8000/health"]
+      interval: 30s           
+      timeout: 10s            
+      retries: 3              
+      start_period: 10s       
+    networks:
+      - f1_network
+    
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana_dashboard
+    environment:
+      - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource
+    ports:
+      - "3001:3000"
+    depends_on:
+      - sanic_app
+      
+    networks:
+      - f1_network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  f1_network:
+    driver: bridge
